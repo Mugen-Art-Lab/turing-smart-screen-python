@@ -96,11 +96,28 @@ class LcdComm(ABC):
             return self.display_width
 
     def openSerial(self):
-        # self.com_port is kept as configured ("AUTO" or a port name): on AUTO the port is
-        # detected again at every attempt, since it can change while the screen resets.
+        # Bind rev.A to a physical USB socket if explicitly configured.
+        # Resolution happens on *every* reopen, including post-resume
+        # SerialException recovery, and never falls back to a stale COM.
+        from library import config
+        binding = (
+            str(config.CONFIG_DATA.get("display", {}).get("USB_LOCATION_PATH", "") or "").strip()
+            if config.CONFIG_DATA.get("display", {}).get("REVISION") == "A" else ""
+        )
         for attempt in range(1, SERIAL_OPEN_ATTEMPTS + 1):
             com_port = self.com_port
-            if com_port == 'AUTO':
+            if binding:
+                from library.usb_location import resolve_com_port, UsbLocationError
+                try:
+                    com_port = resolve_com_port(binding)
+                except UsbLocationError as exc:
+                    logger.warning(
+                        f"Bound display not found: {exc}; retrying ({attempt}/{SERIAL_OPEN_ATTEMPTS})"
+                    )
+                    time.sleep(SERIAL_OPEN_RETRY_DELAY)
+                    continue
+                logger.debug(f"Physical USB binding selected COM: {com_port}")
+            elif com_port == 'AUTO':
                 com_port = self.auto_detect_com_port()
                 if not com_port:
                     logger.warning(
