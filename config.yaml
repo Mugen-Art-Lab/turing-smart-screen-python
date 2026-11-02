@@ -78,3 +78,8 @@ display:
   # This behavior causes the display to disconnect/reconnect, and the COM port to change.
   # On some displays (like rev. A) it can be an issue, in this case change the value to "false".
   RESET_ON_STARTUP: true
+  # Optional Windows-only physical USB connector binding for rev.A screens.
+  # Paste one complete DEVPKEY_Device_LocationPaths value (PCIROOT...#USB...).
+  # When set, COM_PORT is ignored for rev.A; missing/ambiguous devices fail closed.
+  # Do not use the USB serial number, COM number or VID/PID as the binding.
+  USB_LOCATION_PATH: ""
