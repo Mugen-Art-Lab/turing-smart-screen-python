@@ -291,7 +291,7 @@ class TuringConfigWindow:
     def __init__(self):
         self.window = Tk()
         self.window.title('Turing System Monitor configuration')
-        self.window.geometry("820x660")
+        self.window.geometry("820x665")
         self.window.iconphoto(True, PhotoImage(file=str(
             MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png")))  # When window gets focus again, reload theme preview in case it has been updated by theme editor
         self.window.bind("<FocusIn>", self.on_theme_change)
@@ -330,81 +330,73 @@ class TuringConfigWindow:
         self.size_cb.bind('<<ComboboxSelected>>', self.on_size_change)
         self.size_cb.place(x=550, y=70, width=250)
 
-        self.com_label = ttk.Label(self.window, text='COM port')
+        self.com_label = ttk.Label(self.window, text='COM port (saved fallback)')
         self.com_label.place(x=370, y=115)
         self.com_cb = ttk.Combobox(self.window, values=get_com_ports(), state='readonly')
         self.com_cb.place(x=550, y=110, width=250)
 
-        # Binding is optional: the legacy COM/AUTO choice stays available.
+        # Keep the base window compact; show full connector details in a
+        # separate resizable dialog instead of overlapping other controls.
         self.usb_enabled = BooleanVar(value=False)
         self.usb_path = StringVar(value="")
         self.usb_status = StringVar(value="")
+        self.usb_bind_com = StringVar(value="")
+        self.usb_dialog = None
+        self.usb_dialog_ports = None
         self.usb_checkbox = ttk.Checkbutton(
-            self.window, text="Bind to physical USB port (optional)",
+            self.window, text="Use physical USB connector",
             variable=self.usb_enabled, command=self.on_usb_change)
-        self.usb_checkbox.place(x=370, y=145)
-        self.usb_bind_btn = ttk.Button(self.window, text="Bind", command=self.on_usb_bind)
-        self.usb_bind_btn.place(x=655, y=143, width=65)
-        self.usb_clear_btn = ttk.Button(self.window, text="Clear", command=self.on_usb_clear)
-        self.usb_clear_btn.place(x=730, y=143, width=65)
-        ttk.Label(self.window, text="Physical USB path").place(x=370, y=178)
-        self.usb_path_entry = ttk.Entry(
-            self.window, textvariable=self.usb_path, state="readonly")
-        self.usb_path_entry.place(x=550, y=174, width=250)
-        self.usb_status_label = ttk.Label(self.window, textvariable=self.usb_status)
-        self.usb_status_label.place(x=370, y=203)
-        self.usb_refresh_btn = ttk.Button(
-            self.window, text="Refresh COM", command=self.refresh_com_ports)
-        self.usb_refresh_btn.place(x=690, y=199, width=110)
-        self.usb_tooltip = ToolTip(
-            self.usb_checkbox, msg="For multiple identical rev.A screens on Windows. "
-            "Select the current COM, click Bind and save. After sleep the program "
-            "will find the USB socket again. Missing sockets never use another screen.")
-        self.com_cb.bind("<<ComboboxSelected>>", self.on_usb_change, add="+")
+        self.usb_checkbox.place(x=370, y=148)
+        self.usb_settings_btn = ttk.Button(
+            self.window, text="USB settings...", command=self.open_usb_settings)
+        self.usb_settings_btn.place(x=680, y=146, width=120)
+        self.usb_status_label = ttk.Label(
+            self.window, textvariable=self.usb_status, foreground=LINK_TEXT_COLOR)
+        self.usb_status_label.place(x=370, y=181, width=425)
 
         self.orient_label = ttk.Label(self.window, text='Orientation')
-        self.orient_label.place(x=370, y=240)
+        self.orient_label.place(x=370, y=225)
         self.orient_cb = ttk.Combobox(self.window, values=list(reverse_map.values()), state='readonly')
-        self.orient_cb.place(x=550, y=235, width=250)
+        self.orient_cb.place(x=550, y=220, width=250)
 
         self.brightness_string = StringVar()
         self.brightness_label = ttk.Label(self.window, text='Brightness')
-        self.brightness_label.place(x=370, y=280)
+        self.brightness_label.place(x=370, y=265)
         self.brightness_slider = ttk.Scale(self.window, from_=0, to=100, orient=HORIZONTAL,
                                            command=self.on_brightness_change)
-        self.brightness_slider.place(x=600, y=280, width=180)
+        self.brightness_slider.place(x=600, y=260, width=180)
         self.brightness_val_label = ttk.Label(self.window, textvariable=self.brightness_string)
-        self.brightness_val_label.place(x=550, y=280)
+        self.brightness_val_label.place(x=550, y=265)
         self.brightness_warning_label = ttk.Label(self.window,
                                                   text="⚠ Turing 3.5\" displays can get hot at high brightness!",
                                                   foreground=ORANGE_TEXT_COLOR)
 
         sysmon_label = ttk.Label(self.window, text='System Monitor Configuration', font='bold')
-        sysmon_label.place(x=370, y=325)
+        sysmon_label.place(x=370, y=330)
 
         self.theme_label = ttk.Label(self.window, text='Theme')
-        self.theme_label.place(x=370, y=365)
+        self.theme_label.place(x=370, y=370)
         self.theme_cb = ttk.Combobox(self.window, state='readonly')
-        self.theme_cb.place(x=550, y=360, width=250)
+        self.theme_cb.place(x=550, y=365, width=250)
         self.theme_cb.bind('<<ComboboxSelected>>', self.on_theme_change)
 
         self.hwlib_label = ttk.Label(self.window, text='Hardware monitoring')
-        self.hwlib_label.place(x=370, y=405)
+        self.hwlib_label.place(x=370, y=410)
         if sys.platform != "win32":
             del hw_lib_map["LHM"]  # LHM is for Windows platforms only
         self.hwlib_cb = ttk.Combobox(self.window, values=list(hw_lib_map.values()), state='readonly')
-        self.hwlib_cb.place(x=550, y=400, width=250)
+        self.hwlib_cb.place(x=550, y=405, width=250)
         self.hwlib_cb.bind('<<ComboboxSelected>>', self.on_hwlib_change)
 
         self.eth_label = ttk.Label(self.window, text='Ethernet interface')
-        self.eth_label.place(x=370, y=445)
+        self.eth_label.place(x=370, y=450)
         self.eth_cb = ttk.Combobox(self.window, values=get_net_if(), state='readonly')
-        self.eth_cb.place(x=550, y=440, width=250)
+        self.eth_cb.place(x=550, y=445, width=250)
 
         self.wl_label = ttk.Label(self.window, text='Wi-Fi interface')
-        self.wl_label.place(x=370, y=485)
+        self.wl_label.place(x=370, y=490)
         self.wl_cb = ttk.Combobox(self.window, values=get_net_if(), state='readonly')
-        self.wl_cb.place(x=550, y=480, width=250)
+        self.wl_cb.place(x=550, y=485, width=250)
 
         # For Windows platform only
         self.lhm_admin_warning = ttk.Label(self.window,
@@ -430,7 +422,7 @@ class TuringConfigWindow:
                 version = "0.0.0"
 
         version_label = ttk.Label(self.window, text=version, foreground=DISABLED_TEXT_COLOR)
-        version_label.place(x=5, y=620)
+        version_label.place(x=5, y=625)
 
         self.weather_ping_emoji = emoji_to_img(20, "⛅")
         self.weather_ping_btn = ttk.Button(self.window, text="Weather\n& Ping", image=self.weather_ping_emoji,
@@ -591,42 +583,128 @@ class TuringConfigWindow:
         self.more_config_window.load_config_values(self.config)
 
     def refresh_com_ports(self):
+        """Update lists without changing the saved fallback COM."""
         previous = self.com_cb.get()
         self.com_cb.configure(values=get_com_ports())
         self.com_cb.set(previous)
+        if self.usb_dialog_ports is not None and self.usb_dialog_ports.winfo_exists():
+            old = self.usb_bind_com.get()
+            self.usb_dialog_ports.configure(values=get_com_ports()[1:])
+            self.usb_bind_com.set(old)
         self.on_usb_change()
 
     def on_usb_change(self, event=None):
+        """Show Windows PnP detection, never claim serial is connected."""
         if not self.usb_enabled.get():
-            self.usb_status.set("Using saved COM/AUTO; physical binding off")
+            self.usb_status.set("Mode: saved COM/AUTO (USB binding disabled)")
             return
         path = self.usb_path.get().strip()
         if not path:
-            self.usb_status.set("Choose the screen's current COM and click Bind")
+            self.usb_status.set("USB binding: choose current COM in USB settings")
             return
         try:
             port = resolve_com_port(path)
-            self.usb_status.set(f"Windows detects this USB socket as {port} (not a connection test)")
+            socket = path.rsplit("#", 1)[-1]
+            self.usb_status.set(f"USB connector {socket}: Windows detects {port}")
         except UsbLocationError:
-            self.usb_status.set("Bound USB socket not found; no fallback to another display")
+            self.usb_status.set("USB connector missing; will not use another COM")
+
+    def open_usb_settings(self):
+        """Display physical binding controls in a roomy separate dialog."""
+        if self.usb_dialog is not None and self.usb_dialog.winfo_exists():
+            self.usb_dialog.lift()
+            self.usb_dialog.focus_force()
+            return
+        popup = Toplevel(self.window)
+        popup.title("Physical USB display binding")
+        popup.geometry("770x345")
+        popup.minsize(690, 325)
+        popup.transient(self.window)
+        self.usb_dialog = popup
+
+        container = ttk.Frame(popup, padding=18)
+        container.pack(fill="both", expand=True)
+        container.columnconfigure(1, weight=1)
+        ttk.Label(
+            container, text="Physical USB binding for identical Turing rev.A displays",
+            font="bold").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        ttk.Label(
+            container, text="The COM field in the main window is a saved fallback. "
+                            "While USB binding is enabled, Turing follows the physical "
+                            "socket and ignores the saved COM.",
+            wraplength=715, justify="left",
+        ).grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 14))
+
+        ttk.Label(container, text="Current COM to bind").grid(
+            row=2, column=0, sticky="w", padx=(0, 12), pady=5)
+        self.usb_dialog_ports = ttk.Combobox(
+            container, values=get_com_ports()[1:], textvariable=self.usb_bind_com,
+            state="readonly", width=22)
+        self.usb_dialog_ports.grid(row=2, column=1, sticky="ew", pady=5)
+
+        # Preselect the actual bound Windows COM, never the old saved COM.
+        bound_com = None
+        if self.usb_enabled.get() and self.usb_path.get().strip():
+            try:
+                bound_com = resolve_com_port(self.usb_path.get())
+            except UsbLocationError:
+                pass
+        current = self.usb_bind_com.get()
+        ports = list(self.usb_dialog_ports["values"])
+        if bound_com:
+            self.usb_bind_com.set(bound_com)
+        elif current not in ports:
+            self.usb_bind_com.set("")
+
+        ttk.Button(container, text="Refresh ports", command=self.refresh_com_ports).grid(
+            row=2, column=2, sticky="e", padx=(12, 0), pady=5)
+
+        ttk.Label(container, text="Physical USB path").grid(
+            row=3, column=0, sticky="w", padx=(0, 12), pady=5)
+        ttk.Entry(container, textvariable=self.usb_path, state="readonly").grid(
+            row=3, column=1, columnspan=2, sticky="ew", pady=5)
+        ttk.Label(container, text="Windows detection").grid(
+            row=4, column=0, sticky="w", padx=(0, 12), pady=5)
+        ttk.Label(container, textvariable=self.usb_status).grid(
+            row=4, column=1, columnspan=2, sticky="w", pady=5)
+        ttk.Label(
+            container, text="Windows PnP detection does not prove the COM is already "
+                            "open. Binding takes effect when you save the main configuration.",
+            wraplength=715, justify="left",
+        ).grid(row=5, column=0, columnspan=3, sticky="ew", pady=(12, 12))
+
+        actions = ttk.Frame(container)
+        actions.grid(row=6, column=0, columnspan=3, sticky="ew")
+        ttk.Button(actions, text="Bind selected COM", command=self.on_usb_bind).pack(
+            side="left", padx=(0, 12))
+        ttk.Button(actions, text="Disable binding", command=self.on_usb_clear).pack(
+            side="left")
+        ttk.Button(actions, text="Close", command=popup.destroy).pack(side="right")
+        popup.grab_set()
+        popup.focus_set()
 
     def on_usb_bind(self):
         try:
-            path = location_for_selected_com(self.com_cb.get(), list_turing_displays())
+            selected = self.usb_bind_com.get()
+            path = location_for_selected_com(selected, list_turing_displays())
             old = self.usb_path.get().strip()
             if old and old.upper() != path.upper():
                 if not messagebox.askyesno(
                     "Change physical USB binding",
-                    "The selected COM belongs to a DIFFERENT USB socket. Replace the existing binding?",
-                    parent=self.window):
+                    "The selected COM belongs to a DIFFERENT USB connector. "
+                    "Do you want to replace the existing binding?",
+                    parent=self.usb_dialog or self.window):
                     return
             self.usb_path.set(path)
             self.usb_enabled.set(True)
             self.on_usb_change()
         except (UsbLocationError, ValueError) as exc:
-            messagebox.showwarning("Physical USB binding", str(exc), parent=self.window)
+            messagebox.showwarning(
+                "Physical USB binding", str(exc),
+                parent=self.usb_dialog or self.window)
 
     def on_usb_clear(self):
+        # Save still blocks opting out if main COM points at another screen.
         self.usb_enabled.set(False)
         self.on_usb_change()
 
@@ -722,7 +800,7 @@ class TuringConfigWindow:
                 subprocess.Popen([str(theme_editor), self.theme_cb.get()])
 
     def on_save_click(self):
-        self.save_config_values()
+        return self.save_config_values()
 
     def on_saverun_click(self):
         if not self.save_config_values():
@@ -751,10 +829,10 @@ class TuringConfigWindow:
         model = self.model_cb.get()
         rev = model_and_size_to_revision_map.get((model, self.size_cb.get()), "")
         supported = sys.platform == "win32" and rev == "A"
-        for widget in (self.usb_checkbox, self.usb_bind_btn, self.usb_clear_btn):
+        for widget in (self.usb_checkbox, self.usb_settings_btn):
             widget.configure(state="normal" if supported else "disabled")
         if not supported:
-            self.usb_status.set("Physical binding is supported for Windows rev.A only")
+            self.usb_status.set("USB binding is available on Windows rev.A only")
         else:
             self.on_usb_change()
         if model == SIMULATED_MODEL:
@@ -789,6 +867,7 @@ class TuringConfigWindow:
             self.theme_cb.set(themes[0])
 
         self.show_hide_brightness_warning()
+        self.on_model_change()
 
     def on_hwlib_change(self, e=None):
         hwlib = [k for k, v in hw_lib_map.items() if v == self.hwlib_cb.get()][0]
@@ -810,8 +889,8 @@ class TuringConfigWindow:
                 self.save_run_btn.state(["!disabled"])
         else:
             if hwlib == "PYTHON" or hwlib == "AUTO":
-                self.cpu_fan_label.place(x=370, y=525)
-                self.cpu_fan_cb.place(x=550, y=520, width=250)
+                self.cpu_fan_label.place(x=370, y=530)
+                self.cpu_fan_cb.place(x=550, y=525, width=250)
             else:
                 self.cpu_fan_label.place_forget()
                 self.cpu_fan_cb.place_forget()
@@ -819,7 +898,7 @@ class TuringConfigWindow:
     def show_hide_brightness_warning(self, e=None):
         if int(self.brightness_slider.get()) > 50 and self.model_cb.get() == TURING_MODEL and self.size_cb.get() == SIZE_3_5_INCH:
             # Show warning for Turing Smart screen 3.5 with high brightness
-            self.brightness_warning_label.place(x=370, y=308)
+            self.brightness_warning_label.place(x=370, y=292)
         else:
             self.brightness_warning_label.place_forget()
 
