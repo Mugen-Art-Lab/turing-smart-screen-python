@@ -291,7 +291,7 @@ class TuringConfigWindow:
     def __init__(self):
         self.window = Tk()
         self.window.title('Turing System Monitor configuration')
-        self.window.geometry("820x645")
+        self.window.geometry("820x665")
         self.window.iconphoto(True, PhotoImage(file=str(
             MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png")))  # When window gets focus again, reload theme preview in case it has been updated by theme editor
         self.window.bind("<FocusIn>", self.on_theme_change)
@@ -372,31 +372,31 @@ class TuringConfigWindow:
                                                   foreground=ORANGE_TEXT_COLOR)
 
         sysmon_label = ttk.Label(self.window, text='System Monitor Configuration', font='bold')
-        sysmon_label.place(x=370, y=310)
+        sysmon_label.place(x=370, y=330)
 
         self.theme_label = ttk.Label(self.window, text='Theme')
-        self.theme_label.place(x=370, y=350)
+        self.theme_label.place(x=370, y=370)
         self.theme_cb = ttk.Combobox(self.window, state='readonly')
-        self.theme_cb.place(x=550, y=345, width=250)
+        self.theme_cb.place(x=550, y=365, width=250)
         self.theme_cb.bind('<<ComboboxSelected>>', self.on_theme_change)
 
         self.hwlib_label = ttk.Label(self.window, text='Hardware monitoring')
-        self.hwlib_label.place(x=370, y=390)
+        self.hwlib_label.place(x=370, y=410)
         if sys.platform != "win32":
             del hw_lib_map["LHM"]  # LHM is for Windows platforms only
         self.hwlib_cb = ttk.Combobox(self.window, values=list(hw_lib_map.values()), state='readonly')
-        self.hwlib_cb.place(x=550, y=385, width=250)
+        self.hwlib_cb.place(x=550, y=405, width=250)
         self.hwlib_cb.bind('<<ComboboxSelected>>', self.on_hwlib_change)
 
         self.eth_label = ttk.Label(self.window, text='Ethernet interface')
-        self.eth_label.place(x=370, y=430)
+        self.eth_label.place(x=370, y=450)
         self.eth_cb = ttk.Combobox(self.window, values=get_net_if(), state='readonly')
-        self.eth_cb.place(x=550, y=425, width=250)
+        self.eth_cb.place(x=550, y=445, width=250)
 
         self.wl_label = ttk.Label(self.window, text='Wi-Fi interface')
-        self.wl_label.place(x=370, y=470)
+        self.wl_label.place(x=370, y=490)
         self.wl_cb = ttk.Combobox(self.window, values=get_net_if(), state='readonly')
-        self.wl_cb.place(x=550, y=465, width=250)
+        self.wl_cb.place(x=550, y=485, width=250)
 
         # For Windows platform only
         self.lhm_admin_warning = ttk.Label(self.window,
@@ -882,15 +882,15 @@ class TuringConfigWindow:
             import ctypes
             is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
             if (hwlib == "LHM" or hwlib == "AUTO") and not is_admin:
-                self.lhm_admin_warning.place(x=370, y=515)
+                self.lhm_admin_warning.place(x=370, y=535)
                 self.save_run_btn.state(["disabled"])
             else:
                 self.lhm_admin_warning.place_forget()
                 self.save_run_btn.state(["!disabled"])
         else:
             if hwlib == "PYTHON" or hwlib == "AUTO":
-                self.cpu_fan_label.place(x=370, y=510)
-                self.cpu_fan_cb.place(x=550, y=505, width=250)
+                self.cpu_fan_label.place(x=370, y=530)
+                self.cpu_fan_cb.place(x=550, y=525, width=250)
             else:
                 self.cpu_fan_label.place_forget()
                 self.cpu_fan_cb.place_forget()
