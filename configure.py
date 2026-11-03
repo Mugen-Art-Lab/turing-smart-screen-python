@@ -41,6 +41,7 @@ try:
     import webbrowser
 
     from tkinter import *
+    from tkinter import messagebox
     from PIL import ImageTk, ImageFont, ImageDraw, Image
     from pathlib import Path
     from serial.tools.list_ports import comports
@@ -57,6 +58,8 @@ Or the troubleshooting page: https://github.com/mathoudebine/turing-smart-screen
         os._exit(0)
 
 from library.sensors.sensors_python import sensors_fans, is_cpu_fan
+from library.usb_location import list_turing_displays, resolve_com_port, UsbLocationError
+from library.usb_binding_ui import location_for_selected_com, check_binding_disable
 
 TURING_MODEL = "Turing Smart Screen"
 USBPCMONITOR_MODEL = "UsbPCMonitor"
@@ -228,11 +231,22 @@ def get_theme_size(name: str) -> str:
 
 
 def get_com_ports():
-    com_ports_names = ["Automatic detection"]  # Add manual entry on top for automatic detection
-    com_ports = comports()
-    for com_port in com_ports:
-        com_ports_names.append(com_port.name)
-    return com_ports_names
+    """List present ports from serial and Windows SetupAPI without opening COM."""
+    names = set()
+    try:
+        names.update(port.name.upper() for port in comports())
+    except Exception:
+        pass
+    if sys.platform == "win32":
+        try:
+            names.update(device.com_port.upper() for device in list_turing_displays())
+        except UsbLocationError:
+            pass
+    def port_key(name):
+        if name.startswith("COM") and name[3:].isdigit():
+            return (0, int(name[3:]))
+        return (1, name)
+    return ["Automatic detection"] + sorted(names, key=port_key)
 
 
 def get_net_if():
@@ -277,7 +291,7 @@ class TuringConfigWindow:
     def __init__(self):
         self.window = Tk()
         self.window.title('Turing System Monitor configuration')
-        self.window.geometry("820x590")
+        self.window.geometry("820x660")
         self.window.iconphoto(True, PhotoImage(file=str(
             MAIN_DIRECTORY / "res/icons/monitor-icon-17865/64.png")))  # When window gets focus again, reload theme preview in case it has been updated by theme editor
         self.window.bind("<FocusIn>", self.on_theme_change)
@@ -321,49 +335,76 @@ class TuringConfigWindow:
         self.com_cb = ttk.Combobox(self.window, values=get_com_ports(), state='readonly')
         self.com_cb.place(x=550, y=110, width=250)
 
+        # Binding is optional: the legacy COM/AUTO choice stays available.
+        self.usb_enabled = BooleanVar(value=False)
+        self.usb_path = StringVar(value="")
+        self.usb_status = StringVar(value="")
+        self.usb_checkbox = ttk.Checkbutton(
+            self.window, text="Bind to physical USB port (optional)",
+            variable=self.usb_enabled, command=self.on_usb_change)
+        self.usb_checkbox.place(x=370, y=145)
+        self.usb_bind_btn = ttk.Button(self.window, text="Bind", command=self.on_usb_bind)
+        self.usb_bind_btn.place(x=655, y=143, width=65)
+        self.usb_clear_btn = ttk.Button(self.window, text="Clear", command=self.on_usb_clear)
+        self.usb_clear_btn.place(x=730, y=143, width=65)
+        ttk.Label(self.window, text="Physical USB path").place(x=370, y=178)
+        self.usb_path_entry = ttk.Entry(
+            self.window, textvariable=self.usb_path, state="readonly")
+        self.usb_path_entry.place(x=550, y=174, width=250)
+        self.usb_status_label = ttk.Label(self.window, textvariable=self.usb_status)
+        self.usb_status_label.place(x=370, y=203)
+        self.usb_refresh_btn = ttk.Button(
+            self.window, text="Refresh COM", command=self.refresh_com_ports)
+        self.usb_refresh_btn.place(x=690, y=199, width=110)
+        self.usb_tooltip = ToolTip(
+            self.usb_checkbox, msg="For multiple identical rev.A screens on Windows. "
+            "Select the current COM, click Bind and save. After sleep the program "
+            "will find the USB socket again. Missing sockets never use another screen.")
+        self.com_cb.bind("<<ComboboxSelected>>", self.on_usb_change, add="+")
+
         self.orient_label = ttk.Label(self.window, text='Orientation')
-        self.orient_label.place(x=370, y=155)
+        self.orient_label.place(x=370, y=240)
         self.orient_cb = ttk.Combobox(self.window, values=list(reverse_map.values()), state='readonly')
-        self.orient_cb.place(x=550, y=150, width=250)
+        self.orient_cb.place(x=550, y=235, width=250)
 
         self.brightness_string = StringVar()
         self.brightness_label = ttk.Label(self.window, text='Brightness')
-        self.brightness_label.place(x=370, y=195)
+        self.brightness_label.place(x=370, y=280)
         self.brightness_slider = ttk.Scale(self.window, from_=0, to=100, orient=HORIZONTAL,
                                            command=self.on_brightness_change)
-        self.brightness_slider.place(x=600, y=195, width=180)
+        self.brightness_slider.place(x=600, y=280, width=180)
         self.brightness_val_label = ttk.Label(self.window, textvariable=self.brightness_string)
-        self.brightness_val_label.place(x=550, y=195)
+        self.brightness_val_label.place(x=550, y=280)
         self.brightness_warning_label = ttk.Label(self.window,
                                                   text="⚠ Turing 3.5\" displays can get hot at high brightness!",
                                                   foreground=ORANGE_TEXT_COLOR)
 
         sysmon_label = ttk.Label(self.window, text='System Monitor Configuration', font='bold')
-        sysmon_label.place(x=370, y=260)
+        sysmon_label.place(x=370, y=325)
 
         self.theme_label = ttk.Label(self.window, text='Theme')
-        self.theme_label.place(x=370, y=300)
+        self.theme_label.place(x=370, y=365)
         self.theme_cb = ttk.Combobox(self.window, state='readonly')
-        self.theme_cb.place(x=550, y=295, width=250)
+        self.theme_cb.place(x=550, y=360, width=250)
         self.theme_cb.bind('<<ComboboxSelected>>', self.on_theme_change)
 
         self.hwlib_label = ttk.Label(self.window, text='Hardware monitoring')
-        self.hwlib_label.place(x=370, y=340)
+        self.hwlib_label.place(x=370, y=405)
         if sys.platform != "win32":
             del hw_lib_map["LHM"]  # LHM is for Windows platforms only
         self.hwlib_cb = ttk.Combobox(self.window, values=list(hw_lib_map.values()), state='readonly')
-        self.hwlib_cb.place(x=550, y=335, width=250)
+        self.hwlib_cb.place(x=550, y=400, width=250)
         self.hwlib_cb.bind('<<ComboboxSelected>>', self.on_hwlib_change)
 
         self.eth_label = ttk.Label(self.window, text='Ethernet interface')
-        self.eth_label.place(x=370, y=380)
+        self.eth_label.place(x=370, y=445)
         self.eth_cb = ttk.Combobox(self.window, values=get_net_if(), state='readonly')
-        self.eth_cb.place(x=550, y=375, width=250)
+        self.eth_cb.place(x=550, y=440, width=250)
 
         self.wl_label = ttk.Label(self.window, text='Wi-Fi interface')
-        self.wl_label.place(x=370, y=420)
+        self.wl_label.place(x=370, y=485)
         self.wl_cb = ttk.Combobox(self.window, values=get_net_if(), state='readonly')
-        self.wl_cb.place(x=550, y=415, width=250)
+        self.wl_cb.place(x=550, y=480, width=250)
 
         # For Windows platform only
         self.lhm_admin_warning = ttk.Label(self.window,
@@ -389,32 +430,32 @@ class TuringConfigWindow:
                 version = "0.0.0"
 
         version_label = ttk.Label(self.window, text=version, foreground=DISABLED_TEXT_COLOR)
-        version_label.place(x=5, y=550)
+        version_label.place(x=5, y=620)
 
         self.weather_ping_emoji = emoji_to_img(20, "⛅")
         self.weather_ping_btn = ttk.Button(self.window, text="Weather\n& Ping", image=self.weather_ping_emoji,
                                            compound="left", command=lambda: self.on_weatherping_click())
-        self.weather_ping_btn.place(x=80, y=520, height=60, width=130)
+        self.weather_ping_btn.place(x=80, y=575, height=60, width=130)
 
         self.open_theme_emoji = emoji_to_img(20, "📂")
         self.open_theme_folder_btn = ttk.Button(self.window, text="Open themes\nfolder", image=self.open_theme_emoji,
                                                 compound="left", command=lambda: self.on_open_theme_folder_click())
-        self.open_theme_folder_btn.place(x=220, y=520, height=60, width=130)
+        self.open_theme_folder_btn.place(x=220, y=575, height=60, width=130)
 
         self.edit_theme_emoji = emoji_to_img(20, "🎨")
         self.edit_theme_btn = ttk.Button(self.window, text="Edit theme", image=self.edit_theme_emoji, compound="left",
                                          command=lambda: self.on_theme_editor_click())
-        self.edit_theme_btn.place(x=360, y=520, height=60, width=130)
+        self.edit_theme_btn.place(x=360, y=575, height=60, width=130)
 
         self.save_emoji = emoji_to_img(20, "💾")
         self.save_btn = ttk.Button(self.window, text="Save settings", image=self.save_emoji, compound="left",
                                    command=lambda: self.on_save_click())
-        self.save_btn.place(x=500, y=520, height=60, width=130)
+        self.save_btn.place(x=500, y=575, height=60, width=130)
 
         self.save_run_emoji = emoji_to_img(20, "▶️")
         self.save_run_btn = ttk.Button(self.window, text="Save and run", image=self.save_run_emoji, compound="left",
                                        command=lambda: self.on_saverun_click())
-        self.save_run_btn.place(x=640, y=520, height=60, width=140)
+        self.save_run_btn.place(x=640, y=575, height=60, width=140)
 
         self.config = None
         self.load_config_values()
@@ -493,6 +534,10 @@ class TuringConfigWindow:
                 self.com_cb.set(self.config['config']['COM_PORT'])
         except:
             self.com_cb.current(0)
+        existing_path = str(self.config.get('display', {}).get('USB_LOCATION_PATH', '') or '')
+        self.usb_path.set(existing_path)
+        self.usb_enabled.set(bool(existing_path))
+        self.refresh_com_ports()
 
         # Guess display size from theme in the configuration
         size = get_theme_size(self.config['config']['THEME'])
@@ -537,12 +582,73 @@ class TuringConfigWindow:
         # Reload content on screen
         self.on_model_change()
         self.on_size_change()
+        self.on_usb_change()
         self.on_theme_change()
         self.on_brightness_change()
         self.on_hwlib_change()
 
         # Load configuration to sub-window as well
         self.more_config_window.load_config_values(self.config)
+
+    def refresh_com_ports(self):
+        previous = self.com_cb.get()
+        self.com_cb.configure(values=get_com_ports())
+        self.com_cb.set(previous)
+        self.on_usb_change()
+
+    def on_usb_change(self, event=None):
+        if not self.usb_enabled.get():
+            self.usb_status.set("Using saved COM/AUTO; physical binding off")
+            return
+        path = self.usb_path.get().strip()
+        if not path:
+            self.usb_status.set("Choose the screen's current COM and click Bind")
+            return
+        try:
+            port = resolve_com_port(path)
+            self.usb_status.set(f"Windows detects this USB socket as {port} (not a connection test)")
+        except UsbLocationError:
+            self.usb_status.set("Bound USB socket not found; no fallback to another display")
+
+    def on_usb_bind(self):
+        try:
+            path = location_for_selected_com(self.com_cb.get(), list_turing_displays())
+            old = self.usb_path.get().strip()
+            if old and old.upper() != path.upper():
+                if not messagebox.askyesno(
+                    "Change physical USB binding",
+                    "The selected COM belongs to a DIFFERENT USB socket. Replace the existing binding?",
+                    parent=self.window):
+                    return
+            self.usb_path.set(path)
+            self.usb_enabled.set(True)
+            self.on_usb_change()
+        except (UsbLocationError, ValueError) as exc:
+            messagebox.showwarning("Physical USB binding", str(exc), parent=self.window)
+
+    def on_usb_clear(self):
+        self.usb_enabled.set(False)
+        self.on_usb_change()
+
+    def _validate_usb_save(self):
+        if self.usb_enabled.get() and not self.usb_path.get().strip():
+            messagebox.showwarning(
+                "Physical USB binding",
+                "Select the correct current COM and click Bind before saving.",
+                parent=self.window)
+            return False
+        if not self.usb_enabled.get():
+            previous = str(self.config['display'].get('USB_LOCATION_PATH', '') or '')
+            selected = "AUTO" if self.com_cb.current() == 0 else self.com_cb.get()
+            problem, actual_com = check_binding_disable(
+                previous, False, selected, resolve_com_port)
+            if problem:
+                text = ("The bound USB socket is not present; connect it first."
+                        if problem == "unavailable" else
+                        f"Saved COM may open the OTHER screen! Select the correct {actual_com} before disabling.")
+                messagebox.showwarning("Physical USB binding", text, parent=self.window)
+                return False
+        return True
 
     def save_config_values(self):
         self.config['config']['THEME'] = self.theme_cb.get()
@@ -555,10 +661,14 @@ class TuringConfigWindow:
             self.config['config']['WLO'] = ""
         else:
             self.config['config']['WLO'] = self.wl_cb.get()
+        if not self._validate_usb_save():
+            return False
         if self.com_cb.current() == 0:
             self.config['config']['COM_PORT'] = "AUTO"
         else:
             self.config['config']['COM_PORT'] = self.com_cb.get()
+        self.config['display']['USB_LOCATION_PATH'] = (
+            self.usb_path.get().strip() if self.usb_enabled.get() else "")
         if self.cpu_fan_cb.current() == 0:
             self.config['config']['CPU_FAN'] = "AUTO"
         else:
@@ -569,6 +679,7 @@ class TuringConfigWindow:
 
         with open(MAIN_DIRECTORY / "config.yaml", "w", encoding='utf-8') as file:
             ruamel.yaml.YAML().dump(self.config, file)
+        return True
 
     def save_additional_config(self, ping: str, api_key: str, lat: str, long: str, unit: str, lang: str):
         self.config['config']['PING'] = ping
@@ -614,7 +725,8 @@ class TuringConfigWindow:
         self.save_config_values()
 
     def on_saverun_click(self):
-        self.save_config_values()
+        if not self.save_config_values():
+            return
 
         try:
             # Load Python file with local python interpreter (useful for venvs)
@@ -637,6 +749,14 @@ class TuringConfigWindow:
     def on_model_change(self, e=None):
         self.show_hide_brightness_warning()
         model = self.model_cb.get()
+        rev = model_and_size_to_revision_map.get((model, self.size_cb.get()), "")
+        supported = sys.platform == "win32" and rev == "A"
+        for widget in (self.usb_checkbox, self.usb_bind_btn, self.usb_clear_btn):
+            widget.configure(state="normal" if supported else "disabled")
+        if not supported:
+            self.usb_status.set("Physical binding is supported for Windows rev.A only")
+        else:
+            self.on_usb_change()
         if model == SIMULATED_MODEL:
             self.com_cb.configure(state="disabled", foreground=DISABLED_TEXT_COLOR)
             self.orient_cb.configure(state="disabled", foreground=DISABLED_TEXT_COLOR)
@@ -683,15 +803,15 @@ class TuringConfigWindow:
             import ctypes
             is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
             if (hwlib == "LHM" or hwlib == "AUTO") and not is_admin:
-                self.lhm_admin_warning.place(x=370, y=460)
+                self.lhm_admin_warning.place(x=370, y=535)
                 self.save_run_btn.state(["disabled"])
             else:
                 self.lhm_admin_warning.place_forget()
                 self.save_run_btn.state(["!disabled"])
         else:
             if hwlib == "PYTHON" or hwlib == "AUTO":
-                self.cpu_fan_label.place(x=370, y=460)
-                self.cpu_fan_cb.place(x=550, y=455, width=250)
+                self.cpu_fan_label.place(x=370, y=525)
+                self.cpu_fan_cb.place(x=550, y=520, width=250)
             else:
                 self.cpu_fan_label.place_forget()
                 self.cpu_fan_cb.place_forget()
@@ -699,7 +819,7 @@ class TuringConfigWindow:
     def show_hide_brightness_warning(self, e=None):
         if int(self.brightness_slider.get()) > 50 and self.model_cb.get() == TURING_MODEL and self.size_cb.get() == SIZE_3_5_INCH:
             # Show warning for Turing Smart screen 3.5 with high brightness
-            self.brightness_warning_label.place(x=370, y=225)
+            self.brightness_warning_label.place(x=370, y=308)
         else:
             self.brightness_warning_label.place_forget()
 
