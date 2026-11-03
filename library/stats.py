@@ -288,6 +288,12 @@ class CPU:
         save_last_value(freq_ghz, cls.last_values_cpu_frequency,
                         theme_data['LINE_GRAPH'].get("HISTORY_SIZE", DEFAULT_HISTORY_SIZE))
 
+        # Never print "nan GHz" or feed NaN into drawing routines. The next
+        # periodic update must remain able to show a recovered real value.
+        if not math.isfinite(freq_ghz):
+            display_themed_value(theme_data['TEXT'], "N/A", min_size=4)
+            return
+
         display_themed_value(
             theme_data=theme_data['TEXT'],
             value=f'{freq_ghz:.2f}',
@@ -325,15 +331,11 @@ class CPU:
         cpu_temp_graph_data = config.THEME_DATA['STATS']['CPU']['TEMPERATURE']['GRAPH']
         cpu_temp_line_graph_data = config.THEME_DATA['STATS']['CPU']['TEMPERATURE']['LINE_GRAPH']
 
-        if math.isnan(temperature):
-            temperature = 0
-            if cpu_temp_text_data['SHOW'] or cpu_temp_radial_data['SHOW'] or cpu_temp_graph_data[
-                'SHOW'] or cpu_temp_line_graph_data['SHOW']:
-                logger.warning("Your CPU temperature is not supported yet")
-                cpu_temp_text_data['SHOW'] = False
-                cpu_temp_radial_data['SHOW'] = False
-                cpu_temp_graph_data['SHOW'] = False
-                cpu_temp_line_graph_data['SHOW'] = False
+        if not math.isfinite(temperature):
+            # A missing sensor can return on the next poll or after resume.
+            # Keep SHOW enabled; do not invent 0 Celsius or disable the theme.
+            display_themed_value(cpu_temp_text_data, "N/A", min_size=3)
+            return
 
         display_themed_temperature_value(cpu_temp_text_data, temperature)
         display_themed_progress_bar(cpu_temp_graph_data, temperature)
