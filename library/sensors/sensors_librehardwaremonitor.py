@@ -35,6 +35,8 @@ import psutil
 from win32api import *
 
 import library.sensors.sensors as sensors
+from library.sensors.cpu_sensor_health import (core_clock_mhz, core_temperature_c,
+                                                finite_metric, cpu_sensor_inventory)
 from library.log import logger
 
 # Import LibreHardwareMonitor dll to Python
@@ -186,26 +188,45 @@ class Cpu(sensors.Cpu):
         logger.error("CPU load cannot be read")
         return math.nan
 
+    _frequency_source = None
+    _temperature_available = None
+
     @staticmethod
     def frequency() -> float:
-        frequencies = []
-        cpu = get_hw_and_update(Hardware.HardwareType.Cpu)
+        """Read real LHM core clocks; fall back to current psutil MHz if absent."""
+        cpu = None
         try:
-            for sensor in cpu.Sensors:
-                if sensor.SensorType == Hardware.SensorType.Clock:
-                    # Keep only real core clocks, ignore effective core clocks
-                    if "Core #" in str(sensor.Name) and "Effective" not in str(
-                            sensor.Name) and sensor.Value is not None:
-                        frequencies.append(float(sensor.Value))
+            cpu = get_hw_and_update(Hardware.HardwareType.Cpu)
+            clocks = [s for s in cpu.Sensors
+                      if s.SensorType == Hardware.SensorType.Clock] if cpu is not None else []
+            value = core_clock_mhz(clocks)
+            if math.isfinite(value):
+                if Cpu._frequency_source != "lhm":
+                    logger.info("CPU clock source: LibreHardwareMonitor core clocks")
+                Cpu._frequency_source = "lhm"
+                return value
+        except Exception as exc:
+            if Cpu._frequency_source != "missing":
+                logger.warning("Cannot read LHM CPU clocks: %s: %s" % (
+                    type(exc).__name__, exc))
 
-            if frequencies:
-                # Take mean of all core clock as "CPU clock" (as it is done in Windows Task Manager Performance tab)
-                return mean(frequencies)
-        except:
-            pass
+        # On some LHM/PawnIO configurations load is available but core clocks
+        # are not. psutil's current MHz is a useful best-effort alternative.
+        try:
+            cpu_frequency = psutil.cpu_freq()
+            fallback = finite_metric(
+                cpu_frequency.current if cpu_frequency is not None else None, 100, 10000)
+        except Exception:
+            fallback = None
 
-        # Frequencies reading is not supported on this CPU
-        return math.nan
+        source = "psutil" if fallback is not None else "missing"
+        if Cpu._frequency_source != source:
+            logger.warning(
+                "CPU clocks unavailable from LibreHardwareMonitor; "
+                + ("using psutil current MHz" if source == "psutil" else "no valid fallback")
+                + "; CPU sensors: " + cpu_sensor_inventory(cpu))
+        Cpu._frequency_source = source
+        return fallback if fallback is not None else math.nan
 
     @staticmethod
     def load() -> Tuple[float, float, float]:  # 1 / 5 / 15min avg (%):
@@ -214,32 +235,29 @@ class Cpu(sensors.Cpu):
 
     @staticmethod
     def temperature() -> float:
-        cpu = get_hw_and_update(Hardware.HardwareType.Cpu)
+        """Do not permanently disable a theme if one temperature read fails."""
+        cpu = None
         try:
-            # By default, the average temperature of all CPU cores will be used
-            for sensor in cpu.Sensors:
-                if sensor.SensorType == Hardware.SensorType.Temperature and str(sensor.Name).startswith(
-                        "Core Average") and sensor.Value is not None:
-                    return float(sensor.Value)
-            # If not available, the max core temperature will be used
-            for sensor in cpu.Sensors:
-                if sensor.SensorType == Hardware.SensorType.Temperature and str(sensor.Name).startswith(
-                        "Core Max") and sensor.Value is not None:
-                    return float(sensor.Value)
-            # If not available, the CPU Package temperature (usually same as max core temperature) will be used
-            for sensor in cpu.Sensors:
-                if sensor.SensorType == Hardware.SensorType.Temperature and str(sensor.Name).startswith(
-                        "CPU Package") and sensor.Value is not None:
-                    return float(sensor.Value)
-            # Otherwise any sensor named "Core..." will be used
-            for sensor in cpu.Sensors:
-                if sensor.SensorType == Hardware.SensorType.Temperature and str(sensor.Name).startswith(
-                        "Core") and sensor.Value is not None:
-                    return float(sensor.Value)
-        except:
-            pass
+            cpu = get_hw_and_update(Hardware.HardwareType.Cpu)
+            temps = [s for s in cpu.Sensors
+                     if s.SensorType == Hardware.SensorType.Temperature] if cpu is not None else []
+            value = core_temperature_c(temps)
+        except Exception as exc:
+            if Cpu._temperature_available is not False:
+                logger.warning("Cannot read LHM CPU temperatures: %s: %s" % (
+                    type(exc).__name__, exc))
+            value = math.nan
 
-        return math.nan
+        available = math.isfinite(value)
+        if Cpu._temperature_available != available:
+            if available:
+                logger.info("CPU temperature sensor recovered: %.1f C" % value)
+            else:
+                logger.warning(
+                    "CPU temperature currently unavailable; will retry. "
+                    "CPU sensors: " + cpu_sensor_inventory(cpu))
+        Cpu._temperature_available = available
+        return value
 
     @staticmethod
     def fan_percent(fan_name: str = None) -> float:
