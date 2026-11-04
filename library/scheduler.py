@@ -28,6 +28,10 @@ from functools import wraps
 
 import library.config as config
 import library.stats as stats
+from library.log import logger
+from library.task_health import TaskHealth
+
+_TASK_HEALTH = TaskHealth()
 
 STOPPING = False
 
@@ -62,7 +66,9 @@ def schedule(interval):
                 # If the program is not stopping: re-schedule the task for future execution
                 scheduler.enter(periodic_interval, 1, periodic,
                                 (scheduler, periodic_interval, action, actionargs))
-            action(*actionargs)
+            # Preserve this scheduler thread even when a sensor or draw fails.
+            # Capture the traceback in log.log, then retry at the next tick.
+            _TASK_HEALTH.run(action, actionargs, logger)
 
         @wraps(func)
         def wrap(
