@@ -59,3 +59,12 @@ def cpu_sensor_inventory(cpu):
     except Exception as exc:
         return f"could not enumerate sensors ({type(exc).__name__})"
     return ", ".join(items) if items else "CPU has no exposed sensors"
+
+def cpu_percentage_value(value):
+    """Finite load percentage, with only tiny sampling overshoot clamped.
+
+    A temporary None/NaN must not be converted with int() or sent to graphics.
+    It will be retried on the next scheduled read.
+    """
+    number = finite_metric(value, -0.5, 100.5)
+    return min(100.0, max(0.0, number)) if number is not None else None

@@ -40,6 +40,7 @@ from uptime import uptime
 import library.config as config
 from library.display import display
 from library.log import logger
+from library.sensors.cpu_sensor_health import cpu_percentage_value
 
 DEFAULT_HISTORY_SIZE = 10
 
@@ -264,16 +265,27 @@ class CPU:
     last_values_cpu_temperature = []
     last_values_cpu_fan_speed = []
     last_values_cpu_frequency = []
+    _percentage_available = None
 
     @classmethod
     def percentage(cls):
         theme_data = config.THEME_DATA['STATS']['CPU']['PERCENTAGE']
-        cpu_percentage = sensors.Cpu.percentage(
+        raw_percentage = sensors.Cpu.percentage(
             interval=theme_data.get("INTERVAL", None)
         )
+        cpu_percentage = cpu_percentage_value(raw_percentage)
+        if cpu_percentage is None:
+            if cls._percentage_available is not False:
+                logger.warning("CPU percentage unavailable (%r); will retry next tick",
+                               raw_percentage)
+            cls._percentage_available = False
+            return
+
+        if cls._percentage_available is False:
+            logger.info("CPU percentage recovered: %.1f%%", cpu_percentage)
+        cls._percentage_available = True
         save_last_value(cpu_percentage, cls.last_values_cpu_percentage,
                         theme_data['LINE_GRAPH'].get("HISTORY_SIZE", DEFAULT_HISTORY_SIZE))
-        # logger.debug(f"CPU Percentage: {cpu_percentage}")
 
         display_themed_progress_bar(theme_data['GRAPH'], cpu_percentage)
         display_themed_percent_radial_bar(theme_data['RADIAL'], cpu_percentage)
