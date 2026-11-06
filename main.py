@@ -51,6 +51,7 @@ try:
     from library.log import logger
     import library.scheduler as scheduler
     from library.display import display
+    from library.resume_recovery import ResumeRedrawWatch
 
 except Exception as e:
     print("""Import error: %s
@@ -77,6 +78,12 @@ if __name__ == "__main__":
     locale.setlocale(locale.LC_ALL, '')
 
     logger.debug("Using Python %s" % sys.version)
+    resume_redraw_watch = ResumeRedrawWatch()
+
+    def restore_display_scene():
+        display.turn_on()
+        display.display_static_images()
+        display.display_static_text()
 
 
     def wait_for_empty_queue(timeout: int = 5):
@@ -164,13 +171,15 @@ if __name__ == "__main__":
                     # Windows may resume the process before the USB/serial endpoint is fully
                     # ready. Also allow queued pre-suspend writes to finish before restoring
                     # display state and redrawing the theme.
+                    # Arm before the initial redraw; a partial serial write may
+                    # fail while USB is still re-enumerating after hibernation.
+                    if hasattr(display.lcd, "serial_write_failures"):
+                        resume_redraw_watch.arm(display.lcd.serial_write_failures)
                     logger.info("Waiting 1.0s for USB display to settle after resume")
                     time.sleep(1.0)
                     wait_for_empty_queue(2)
-                    display.turn_on()
-                    # Some models have troubles displaying back the previous bitmap after being turned off/on
-                    display.display_static_images()
-                    display.display_static_text()
+                    # Some models have troubles displaying back the previous bitmap after being turned off/on.
+                    restore_display_scene()
                     logger.info("Resume redraw queued")
             else:
                 # For any other events, the program will stop
@@ -326,6 +335,18 @@ if __name__ == "__main__":
             while True:
                 # Receive and dispatch window messages
                 win32gui.PumpWaitingMessages()
+                # If a post-resume serial write was lost, retry the entire
+                # orientation/static scene once USB and the output queue settle.
+                # Runs in the existing message loop; no extra USB resets.
+                if resume_redraw_watch.active:
+                    lcd = display.lcd
+                    serial_port = getattr(lcd, "lcd_serial", None)
+                    ready = (serial_port is not None and
+                             bool(getattr(serial_port, "is_open", False)) and
+                             scheduler.is_queue_empty())
+                    resume_redraw_watch.poll(
+                        getattr(lcd, "serial_write_failures", 0), ready,
+                        restore_display_scene, logger)
                 time.sleep(0.5)
 
         except Exception as e:
