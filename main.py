@@ -50,6 +50,7 @@ try:
 
     from library.log import logger
     import library.scheduler as scheduler
+    from library import config
     from library.display import display
     from library.resume_recovery import ResumeRedrawWatch
 
@@ -173,7 +174,8 @@ if __name__ == "__main__":
                     # display state and redrawing the theme.
                     # Arm before the initial redraw; a partial serial write may
                     # fail while USB is still re-enumerating after hibernation.
-                    if hasattr(display.lcd, "serial_write_failures"):
+                    if (config.CONFIG_DATA["display"]["REVISION"] == "A" and
+                            hasattr(display.lcd, "serial_write_failures")):
                         resume_redraw_watch.arm(display.lcd.serial_write_failures)
                     logger.info("Waiting 1.0s for USB display to settle after resume")
                     time.sleep(1.0)
