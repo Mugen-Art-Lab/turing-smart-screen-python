@@ -54,6 +54,9 @@ class LcdComm(ABC):
     def __init__(self, com_port: str = "AUTO", display_width: int = 320, display_height: int = 480,
                  update_queue: Optional[queue.Queue] = None):
         self.lcd_serial = None
+        # Count swallowed serial write errors: post-resume scene repair may
+        # need to resend orientation/background after individual lost writes.
+        self.serial_write_failures = 0
 
         # String containing absolute path to serial port e.g. "COM3", "/dev/ttyACM1" or "AUTO" for auto-discovery
         # Ignored for USB HID screens
@@ -184,8 +187,10 @@ class LcdComm(ABC):
                 self.lcd_serial.flush()
         except serial.SerialTimeoutException:
             # We timed-out trying to write to our device, slow things down.
+            self.serial_write_failures += 1
             logger.warning("(Write line) Too fast! Slow down!")
         except serial.SerialException:
+            self.serial_write_failures += 1
             # Error writing data to device: close and reopen serial port, try to write again
             logger.error(
                 "SerialException: Failed to send serial data to device. Closing and reopening COM port before retrying once.")
